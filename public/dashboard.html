@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rewind Dashboard</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: rgba(15, 23, 42, 0.92);
+        --card: rgba(30, 41, 59, 0.9);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #8b5cf6;
+        --accent-2: #22c55e;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: linear-gradient(135deg, #020817, #111827 40%, #1f2937);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .panel {
+        width: min(720px, calc(100vw - 32px));
+        background: var(--panel);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 18px;
+        padding: 28px;
+        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.28);
+      }
+
+      h1 {
+        margin-top: 0;
+        font-size: 2rem;
+      }
+
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      button {
+        padding: 12px 18px;
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+        background: linear-gradient(135deg, var(--accent), #7c3aed);
+        color: white;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 120px;
+        padding: 10px 12px;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.35);
+        color: #bbf7d0;
+        font-weight: 700;
+      }
+
+      .digest {
+        margin-top: 24px;
+        background: var(--card);
+        border-radius: 12px;
+        padding: 16px;
+        border: 1px solid rgba(148, 163, 184, 0.15);
+      }
+
+      .digest h2 {
+        margin-top: 0;
+      }
+
+      ul {
+        padding-left: 18px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <div class="toolbar">
+        <h1>Rewind</h1>
+        <div id="unread-badge" class="badge">Unread: 0 / 0</div>
+      </div>
+
+      <button id="trigger-button">Trigger catch-up</button>
+
+      <div id="digest" class="digest">
+        <h2>Current catch-up digest</h2>
+        <p class="muted">No digest yet.</p>
+      </div>
+    </div>
+
+    <script>
+      const unreadBadge = document.getElementById('unread-badge');
+      const digestEl = document.getElementById('digest');
+      const triggerButton = document.getElementById('trigger-button');
+      const socket = new WebSocket(`ws://${location.host}`);
+
+      function renderUnread(unread) {
+        if (!unread) {
+          unreadBadge.textContent = 'Unread: 0 / 0';
+          return;
+        }
+
+        unreadBadge.textContent = `Unread: ${unread.questions ?? 0} Q / ${unread.events ?? 0} E`;
+      }
+
+      function renderDigest(digest) {
+        if (!digest) {
+          digestEl.innerHTML = '<h2>Current catch-up digest</h2><p class="muted">No digest yet.</p>';
+          return;
+        }
+
+        const questionItems = (digest.questions || []).map((q) => `<li><strong>${q.user || 'viewer'}:</strong> ${q.text || ''}</li>`).join('') || '<li>None</li>';
+        const eventItems = (digest.events || []).map((e) => `<li>${e.summary || 'Event'}</li>`).join('') || '<li>None</li>';
+        const jokeItems = (digest.jokes || []).map((j) => `<li>${j.summary || 'Joke'}</li>`).join('') || '<li>None</li>';
+
+        digestEl.innerHTML = `
+          <h2>Current catch-up digest</h2>
+          <p><strong>One line:</strong> ${digest.oneLine || 'No summary available.'}</p>
+          <h3>Questions</h3>
+          <ul>${questionItems}</ul>
+          <h3>Events</h3>
+          <ul>${eventItems}</ul>
+          <h3>Jokes</h3>
+          <ul>${jokeItems}</ul>
+        `;
+      }
+
+      socket.addEventListener('message', (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'unread') {
+          renderUnread(message.payload);
+        }
+        if (message.type === 'digest') {
+          renderDigest(message.payload);
+        }
+      });
+
+      triggerButton.addEventListener('click', async () => {
+        const response = await fetch('/api/trigger-catchup');
+        const result = await response.json();
+        if (result && result.digest) {
+          renderDigest(result.digest);
+        }
+      });
+    </script>
+  </body>
+</html>

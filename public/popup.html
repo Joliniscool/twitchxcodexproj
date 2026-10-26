@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rewind Popup</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: rgba(15, 23, 42, 0.96);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #8b5cf6;
+        --section: #c4b5fd;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .launcher {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 16px;
+        box-sizing: border-box;
+        text-align: center;
+      }
+
+      .launcher p {
+        margin: 0;
+        max-width: 420px;
+        color: var(--muted);
+      }
+
+      button {
+        padding: 10px 16px;
+        border: none;
+        border-radius: 10px;
+        font-weight: 700;
+        font-size: 0.95rem;
+        cursor: pointer;
+        background: linear-gradient(135deg, var(--accent), #7c3aed);
+        color: white;
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      #app {
+        width: 100%;
+        max-width: 420px;
+        box-sizing: border-box;
+        padding: 14px;
+        background: var(--panel);
+        border-radius: 14px;
+        text-align: left;
+      }
+
+      .popped #app {
+        max-width: none;
+        min-height: 100vh;
+        border-radius: 0;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .badge {
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.15);
+        border: 1px solid rgba(34, 197, 94, 0.4);
+        color: #bbf7d0;
+        font-size: 0.78rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .status {
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+
+      .one-line {
+        margin: 0 0 10px;
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+
+      .section h3 {
+        margin: 10px 0 4px;
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--section);
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 3px 0;
+        font-size: 0.88rem;
+      }
+
+      #catchup-button {
+        width: 100%;
+        margin-top: 12px;
+      }
+
+      @keyframes flash {
+        from { box-shadow: inset 0 0 0 3px var(--accent); }
+        to { box-shadow: inset 0 0 0 3px transparent; }
+      }
+
+      .flash {
+        animation: flash 1.6s ease-out;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="launcher">
+      <button id="popout-button">Pop out Rewind</button>
+      <p id="launcher-hint">
+        Opens a small window that stays on top of your game and OBS. Keep this tab open while you stream.
+      </p>
+
+      <div id="app" aria-live="polite">
+        <div class="header">
+          <h1>Rewind</h1>
+          <span id="badge" class="badge">0 Q / 0 E</span>
+        </div>
+        <div id="status" class="status">Connecting…</div>
+
+        <p id="one-line" class="one-line">No catch-up yet.</p>
+
+        <div class="section">
+          <h3>Questions</h3>
+          <ul id="questions"></ul>
+        </div>
+        <div class="section">
+          <h3>Events</h3>
+          <ul id="events"></ul>
+        </div>
+        <div class="section">
+          <h3>Jokes</h3>
+          <ul id="jokes"></ul>
+        </div>
+
+        <button id="catchup-button">Catch me up</button>
+      </div>
+    </div>
+
+    <script>
+      const launcher = document.querySelector('.launcher');
+      const app = document.getElementById('app');
+      const popoutButton = document.getElementById('popout-button');
+      const hint = document.getElementById('launcher-hint');
+      const badge = document.getElementById('badge');
+      const statusEl = document.getElementById('status');
+      const oneLineEl = document.getElementById('one-line');
+      const questionsEl = document.getElementById('questions');
+      const eventsEl = document.getElementById('events');
+      const jokesEl = document.getElementById('jokes');
+      const catchupButton = document.getElementById('catchup-button');
+      let pipWindow = null;
+
+      // Chat text is untrusted, so lists are built with textContent rather than innerHTML.
+      function renderList(el, items, fallbackText) {
+        el.replaceChildren();
+        const texts = items.length ? items : [fallbackText];
+        for (const text of texts) {
+          const li = el.ownerDocument.createElement('li');
+          li.textContent = text;
+          el.appendChild(li);
+        }
+      }
+
+      function renderUnread(unread) {
+        badge.textContent = `${unread?.questions ?? 0} Q / ${unread?.events ?? 0} E`;
+      }
+
+      function renderDigest(digest) {
+        if (!digest) return;
+
+        oneLineEl.textContent = digest.oneLine || 'Recent stream activity summarized.';
+        renderList(questionsEl, (digest.questions || []).map((q) => `${q.user || 'viewer'}: ${q.text || ''}`), 'No questions');
+        renderList(eventsEl, (digest.events || []).map((e) => e.summary || 'Stream event'), 'No events');
+        renderList(jokesEl, (digest.jokes || []).map((j) => j.summary || 'Meme moment'), 'No jokes');
+
+        app.classList.remove('flash');
+        void app.offsetWidth;
+        app.classList.add('flash');
+      }
+
+      function connect() {
+        const socket = new WebSocket(`ws://${location.host}`);
+
+        socket.addEventListener('open', () => {
+          statusEl.textContent = 'Live';
+        });
+
+        socket.addEventListener('message', (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === 'unread') {
+            renderUnread(message.payload);
+          }
+          if (message.type === 'digest') {
+            renderDigest(message.payload);
+          }
+        });
+
+        // The popup stays open for a whole stream, so survive server restarts.
+        socket.addEventListener('close', () => {
+          statusEl.textContent = 'Disconnected, retrying…';
+          setTimeout(connect, 2000);
+        });
+      }
+
+      catchupButton.addEventListener('click', async () => {
+        catchupButton.disabled = true;
+        try {
+          const response = await fetch('/api/trigger-catchup');
+          const result = await response.json();
+          renderDigest(result.digest);
+        } catch (error) {
+          statusEl.textContent = 'Catch-up failed';
+        } finally {
+          catchupButton.disabled = false;
+        }
+      });
+
+      async function popOut() {
+        if (pipWindow) {
+          pipWindow.focus();
+          return;
+        }
+
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 360, height: 520 });
+
+        for (const styleEl of document.querySelectorAll('style')) {
+          pipWindow.document.head.appendChild(styleEl.cloneNode(true));
+        }
+        pipWindow.document.title = 'Rewind';
+        pipWindow.document.body.classList.add('popped');
+        pipWindow.document.body.appendChild(app);
+        hint.textContent = 'Rewind is popped out. Close the floating window to bring it back here.';
+
+        pipWindow.addEventListener('pagehide', () => {
+          launcher.appendChild(app);
+          hint.textContent = 'Opens a small window that stays on top of your game and OBS. Keep this tab open while you stream.';
+          pipWindow = null;
+        });
+      }
+
+      if ('documentPictureInPicture' in window) {
+        popoutButton.addEventListener('click', popOut);
+      } else {
+        popoutButton.disabled = true;
+        hint.textContent = 'Always-on-top popups need Chrome or Edge 116+. The panel below still works in this tab.';
+      }
+
+      connect();
+    </script>
+  </body>
+</html>

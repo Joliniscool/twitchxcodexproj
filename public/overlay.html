@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rewind Overlay</title>
+    <style>
+      :root {
+        --bg: transparent;
+        --panel: rgba(15, 23, 42, 0.8);
+        --panel-border: rgba(148, 163, 184, 0.3);
+        --text: #f8fafc;
+        --muted: #cbd5e1;
+        --accent: #a78bfa;
+        --badge-bg: rgba(34, 197, 94, 0.9);
+      }
+
+      html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--bg);
+        font-family: Arial, sans-serif;
+        overflow: hidden;
+      }
+
+      body {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        padding: 24px;
+      }
+
+      .card {
+        display: none;
+        width: min(440px, 34vw);
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 16px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+        padding: 18px 18px 14px;
+        color: var(--text);
+        backdrop-filter: blur(6px);
+      }
+
+      .card.visible {
+        display: block;
+      }
+
+      .corner-badge {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: var(--badge-bg);
+        color: white;
+        border-radius: 999px;
+        padding: 7px 10px;
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        box-shadow: 0 6px 18px rgba(34, 197, 94, 0.35);
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        font-size: 1.2rem;
+      }
+
+      .one-line {
+        margin: 0 0 12px;
+        font-size: 0.95rem;
+        color: var(--muted);
+      }
+
+      .section {
+        margin-top: 10px;
+      }
+
+      .section h3 {
+        margin: 0 0 6px;
+        font-size: 0.76rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #c4b5fd;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--text);
+      }
+
+      li {
+        margin: 4px 0;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="badge" class="corner-badge">Unread: 0 / 0</div>
+
+    <div id="card" class="card" aria-live="polite">
+      <h2>Rewind digest</h2>
+      <p id="one-line" class="one-line">No recent catch-up.</p>
+
+      <div class="section">
+        <h3>Questions</h3>
+        <ul id="questions"></ul>
+      </div>
+
+      <div class="section">
+        <h3>Events</h3>
+        <ul id="events"></ul>
+      </div>
+
+      <div class="section">
+        <h3>Jokes</h3>
+        <ul id="jokes"></ul>
+      </div>
+    </div>
+
+    <script>
+      const card = document.getElementById('card');
+      const badge = document.getElementById('badge');
+      const oneLineEl = document.getElementById('one-line');
+      const questionsEl = document.getElementById('questions');
+      const eventsEl = document.getElementById('events');
+      const jokesEl = document.getElementById('jokes');
+      let hideTimer = null;
+
+      function updateBadge(unread) {
+        const q = unread?.questions ?? 0;
+        const e = unread?.events ?? 0;
+        badge.textContent = `Unread: ${q} / ${e}`;
+      }
+
+      function renderList(el, items, fallbackText = 'None') {
+        if (!items || items.length === 0) {
+          el.innerHTML = `<li>${fallbackText}</li>`;
+          return;
+        }
+
+        el.innerHTML = items.map((entry) => `<li>${entry.summary || entry.text || entry.label || 'Entry'}</li>`).join('');
+      }
+
+      function showDigest(digest) {
+        if (!digest) return;
+
+        oneLineEl.textContent = digest.oneLine || 'Recent stream activity summarized.';
+        renderList(questionsEl, (digest.questions || []).map((q) => ({ text: `${q.user || 'viewer'}: ${q.text || ''}` })), 'No questions');
+        renderList(eventsEl, (digest.events || []).map((e) => ({ summary: e.summary || 'Stream event' })), 'No events');
+        renderList(jokesEl, (digest.jokes || []).map((j) => ({ summary: j.summary || 'Meme moment' })), 'No jokes');
+
+        card.classList.add('visible');
+        if (hideTimer) {
+          clearTimeout(hideTimer);
+        }
+        hideTimer = setTimeout(() => {
+          card.classList.remove('visible');
+        }, 15000);
+      }
+
+      const socket = new WebSocket(`ws://${location.host}`);
+      socket.addEventListener('message', (event) => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'unread') {
+          updateBadge(message.payload);
+        }
+        if (message.type === 'digest') {
+          showDigest(message.payload);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -5,5 +5,14 @@
 !.env.sample
 !.env.template
 
+# Dependencies and runtime artifacts
+node_modules/
+coverage/
+logs/
+*.log
+
+# Generated data
+/data/
+
 # macOS metadata
 .DS_Store
