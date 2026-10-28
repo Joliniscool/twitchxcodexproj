@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import fs from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
@@ -16,6 +17,7 @@ export function createLocalServer({ port = Number(process.env.PORT) || 3000, log
   let triggerHandler = async () => ({ ok: true });
   let unreadState = { questions: 0, events: 0, total: 0 };
   let latestDigest = null;
+  let latestMoments = [];
 
   app.use(express.static(publicDir));
 
@@ -25,6 +27,17 @@ export function createLocalServer({ port = Number(process.env.PORT) || 3000, log
 
   app.get('/api/unread', (_req, res) => {
     res.json({ ok: true, unread: unreadState });
+  });
+
+  app.get('/api/moments', async (_req, res) => {
+    try {
+      const data = await fs.readFile(path.resolve(process.cwd(), 'data/moments.json'), 'utf8');
+      const parsed = JSON.parse(data || '[]');
+      latestMoments = Array.isArray(parsed) ? parsed : [];
+      res.json({ ok: true, moments: latestMoments });
+    } catch (error) {
+      res.json({ ok: true, moments: [] });
+    }
   });
 
   app.get('/api/trigger-catchup', async (_req, res) => {
@@ -51,6 +64,9 @@ export function createLocalServer({ port = Number(process.env.PORT) || 3000, log
     socket.send(JSON.stringify({ type: 'unread', payload: unreadState }));
     if (latestDigest) {
       socket.send(JSON.stringify({ type: 'digest', payload: latestDigest }));
+    }
+    if (latestMoments.length) {
+      socket.send(JSON.stringify({ type: 'moments', payload: latestMoments }));
     }
 
     socket.on('message', async (raw) => {
@@ -97,6 +113,10 @@ export function createLocalServer({ port = Number(process.env.PORT) || 3000, log
     emitDigest(digest) {
       latestDigest = digest;
       broadcast('digest', digest);
+    },
+    emitMoments(moments) {
+      latestMoments = moments;
+      broadcast('moments', moments);
     },
     emitStatus(message) {
       broadcast('status', { message });

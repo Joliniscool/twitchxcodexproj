@@ -43,6 +43,20 @@ export async function refreshAccessToken({ clientId, refreshToken, clientSecret 
   return data;
 }
 
+export async function validateToken(accessToken) {
+  const response = await fetch(`${DEFAULT_TWITCH_BASE}/validate`, {
+    headers: { Authorization: `OAuth ${accessToken}` },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(`Twitch token validation failed: ${data?.message || response.statusText}`);
+  }
+
+  return data;
+}
+
 export function isUnauthorizedStatus(statusCode) {
   return statusCode === 401;
 }

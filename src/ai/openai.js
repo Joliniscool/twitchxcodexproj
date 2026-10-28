@@ -47,6 +47,8 @@ function parseJsonFromText(text) {
 
 export async function summarizeCatchup({ items, logger = console }) {
   const recentItems = (items || []).filter(Boolean);
+  const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '';
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
   if (!recentItems.length) {
     return {
@@ -58,8 +60,8 @@ export async function summarizeCatchup({ items, logger = console }) {
     };
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    logger.info('[ai] no OpenAI API key, using local fallback digest');
+  if (!apiKey) {
+    logger.info('[ai] no OpenAI API key configured; using local fallback digest');
     return buildFallbackDigest(recentItems);
   }
 
@@ -83,9 +85,9 @@ Rules:
 `;
 
   try {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({ apiKey });
     const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model,
       input: [{ role: 'user', content: prompt }],
     });
 

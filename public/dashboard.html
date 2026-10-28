@@ -5,91 +5,156 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rewind Dashboard</title>
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
       :root {
-        --bg: #0f172a;
-        --panel: rgba(15, 23, 42, 0.92);
-        --card: rgba(30, 41, 59, 0.9);
-        --text: #e2e8f0;
-        --muted: #94a3b8;
-        --accent: #8b5cf6;
-        --accent-2: #22c55e;
+        --bg: #0e0e10;
+        --bg-2: #18181b;
+        --panel: rgba(24, 24, 27, 0.96);
+        --surface: #1f1f23;
+        --surface-alt: #121214;
+        --text: #f7f7fa;
+        --muted: #adadb8;
+        --accent: #9147ff;
+        --accent-strong: #772ce8;
+        --accent-soft: rgba(145, 71, 255, 0.16);
+        --success: #00d18a;
+        --border: rgba(255, 255, 255, 0.08);
+        --shadow: rgba(0, 0, 0, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
         margin: 0;
-        font-family: Arial, sans-serif;
-        background: linear-gradient(135deg, #020817, #111827 40%, #1f2937);
+        font-family: 'Inter', 'Segoe UI', sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(145, 71, 255, 0.2), transparent 25%),
+          radial-gradient(circle at bottom right, rgba(0, 209, 138, 0.12), transparent 20%),
+          linear-gradient(180deg, var(--bg), #111113 100%);
         color: var(--text);
         min-height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
+        letter-spacing: -0.02em;
       }
 
       .panel {
-        width: min(720px, calc(100vw - 32px));
+        width: min(780px, calc(100vw - 32px));
         background: var(--panel);
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        border-radius: 18px;
-        padding: 28px;
-        box-shadow: 0 20px 45px rgba(0, 0, 0, 0.28);
-      }
-
-      h1 {
-        margin-top: 0;
-        font-size: 2rem;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 28px 28px 24px;
+        box-shadow: 0 24px 60px var(--shadow);
       }
 
       .toolbar {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 12px;
+        gap: 16px;
         margin-bottom: 20px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .brand-mark {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--accent), #b77cff);
+        box-shadow: 0 0 22px rgba(145, 71, 255, 0.7);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(1.8rem, 2vw, 2.2rem);
+        line-height: 1.1;
+        font-weight: 800;
       }
 
       button {
+        margin-top: 4px;
         padding: 12px 18px;
-        border: none;
-        border-radius: 10px;
+        border: 1px solid rgba(145, 71, 255, 0.35);
+        border-radius: 12px;
         font-weight: 700;
-        font-size: 1rem;
+        font-size: 0.96rem;
         cursor: pointer;
-        background: linear-gradient(135deg, var(--accent), #7c3aed);
+        background: linear-gradient(135deg, var(--accent), var(--accent-strong));
         color: white;
+        box-shadow: 0 12px 24px rgba(119, 44, 232, 0.35);
+        transition: transform 0.15s ease, filter 0.15s ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        filter: brightness(1.04);
       }
 
       .badge {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 120px;
-        padding: 10px 12px;
+        min-width: 136px;
+        padding: 9px 12px;
         border-radius: 999px;
-        background: rgba(34, 197, 94, 0.1);
-        border: 1px solid rgba(34, 197, 94, 0.35);
-        color: #bbf7d0;
+        background: rgba(0, 209, 138, 0.12);
+        border: 1px solid rgba(0, 209, 138, 0.26);
+        color: #d7ffef;
+        font-size: 0.78rem;
         font-weight: 700;
+        letter-spacing: 0.02em;
       }
 
-      .digest {
-        margin-top: 24px;
-        background: var(--card);
-        border-radius: 12px;
-        padding: 16px;
-        border: 1px solid rgba(148, 163, 184, 0.15);
+      .digest, .moments {
+        margin-top: 22px;
+        background: linear-gradient(180deg, rgba(31, 31, 35, 0.9), rgba(18, 18, 20, 0.9));
+        border-radius: 14px;
+        padding: 18px 18px 16px;
+        border: 1px solid var(--border);
       }
 
-      .digest h2 {
-        margin-top: 0;
+      .digest h2, .moments h2 {
+        margin: 0 0 12px;
+        font-size: 1.05rem;
+        letter-spacing: -0.02em;
+      }
+
+      .digest h3 {
+        margin: 16px 0 8px;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
       }
 
       ul {
         padding-left: 18px;
+        margin: 0;
+        color: var(--text);
+      }
+
+      li {
+        margin-bottom: 8px;
+        line-height: 1.5;
       }
 
       .muted {
         color: var(--muted);
+      }
+
+      strong {
+        color: #fff;
       }
     </style>
   </head>
@@ -106,11 +171,17 @@
         <h2>Current catch-up digest</h2>
         <p class="muted">No digest yet.</p>
       </div>
+
+      <div id="moments" class="moments">
+        <h2>Today's moments</h2>
+        <p class="muted">No hype moments yet.</p>
+      </div>
     </div>
 
     <script>
       const unreadBadge = document.getElementById('unread-badge');
       const digestEl = document.getElementById('digest');
+      const momentsEl = document.getElementById('moments');
       const triggerButton = document.getElementById('trigger-button');
       const socket = new WebSocket(`ws://${location.host}`);
 
@@ -145,6 +216,23 @@
         `;
       }
 
+      function renderMoments(list) {
+        if (!list || !list.length) {
+          momentsEl.innerHTML = '<h2>Today\'s moments</h2><p class="muted">No hype moments yet.</p>';
+          return;
+        }
+
+        const items = list.slice(-5).reverse().map((moment) => {
+          const score = moment.score ? ` (${moment.score})` : '';
+          return `<li>${moment.label || 'Moment'}${score}</li>`;
+        }).join('');
+
+        momentsEl.innerHTML = `
+          <h2>Today's moments</h2>
+          <ul>${items}</ul>
+        `;
+      }
+
       socket.addEventListener('message', (event) => {
         const message = JSON.parse(event.data);
         if (message.type === 'unread') {
@@ -152,6 +240,9 @@
         }
         if (message.type === 'digest') {
           renderDigest(message.payload);
+        }
+        if (message.type === 'moments') {
+          renderMoments(message.payload);
         }
       });
 
@@ -162,6 +253,10 @@
           renderDigest(result.digest);
         }
       });
+
+      fetch('/api/moments')
+        .then((response) => response.json())
+        .then((result) => renderMoments(result.moments || []));
     </script>
   </body>
 </html>

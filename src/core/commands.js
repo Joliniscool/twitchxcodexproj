@@ -12,7 +12,13 @@ export function parseCommandText(text = '') {
   };
 }
 
-export function isAllowedTrigger(user = '') {
-  const normalized = String(user || '').toLowerCase();
+// Real Twitch chat sends badges as { set_id } objects; the simulator uses plain strings and role-named users.
+export function isAllowedTrigger(event = {}) {
+  const badges = (event.badges || []).map((badge) => String(badge?.set_id || badge).toLowerCase());
+  if (badges.some((badge) => ['broadcaster', 'moderator'].includes(badge))) {
+    return true;
+  }
+
+  const normalized = String(event.user || '').toLowerCase();
   return ['streamer', 'mod', 'moderator', 'admin'].includes(normalized);
 }

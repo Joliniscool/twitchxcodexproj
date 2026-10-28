@@ -1,8 +1,9 @@
 import WebSocket from 'ws';
 
-import { getTwitchHeaders, isUnauthorizedStatus, refreshAccessToken } from './auth.js';
+import { getTwitchHeaders, isUnauthorizedStatus, refreshAccessToken, validateToken } from './auth.js';
 
 const DEFAULT_EVENTSUB_URL = 'wss://eventsub.wss.twitch.tv/ws';
+const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions';
 
 export class EventSubClient {
   constructor({ accessToken, broadcasterId, onEvent, logger = console }) {
@@ -38,13 +39,23 @@ export class EventSubClient {
     }
   }
 
-  _buildSubscription(type, version = '1') {
+  // The token's own user reads chat, and doubles as the broadcaster when BROADCASTER_ID is unset.
+  async _ensureUserId() {
+    if (this.userId) {
+      return;
+    }
+
+    const info = await validateToken(this.accessToken);
+    this.userId = info.user_id;
+    this.broadcasterId = this.broadcasterId || info.user_id;
+    this.logger.info('[eventsub] token valid', { login: info.login, scopes: info.scopes });
+  }
+
+  _buildSubscription(type, condition, version = '1') {
     return {
       type,
       version,
-      condition: {
-        broadcaster_user_id: this.broadcasterId,
-      },
+      condition,
       transport: {
         method: 'websocket',
         session_id: this.sessionId,
@@ -52,34 +63,47 @@ export class EventSubClient {
     };
   }
 
-  _subscribeToDefaults() {
-    const types = [
-      'channel.chat.message',
-      'channel.subscribe',
-      'channel.subscription.gift',
-      'channel.raid',
-      'channel.cheer',
-      'channel.channel_points_custom_reward_redemption.add',
-    ];
+  // EventSub over WebSocket only delivers events; subscriptions must be created through Helix.
+  async _createSubscription(payload, retried = false) {
+    const response = await fetch(SUBSCRIPTIONS_URL, {
+      method: 'POST',
+      headers: getTwitchHeaders(this.accessToken),
+      body: JSON.stringify(payload),
+    });
 
-    for (const type of types) {
-      const payload = this._buildSubscription(type);
-      this.subscriptions.set(type, payload);
-      this._send({
-        type: 'subscribe',
-        payload,
-      });
-      this.logger.info(`[eventsub] subscribed to ${type}`);
+    if (!retried && await this._refreshTokenIfNeeded(response.status)) {
+      return this._createSubscription(payload, true);
+    }
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(`${response.status} ${data?.message || response.statusText}`);
     }
   }
 
-  _send(message) {
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      this.logger.warn('[eventsub] websocket not open, dropping message', message.type);
-      return;
-    }
+  async _subscribeToDefaults() {
+    await this._ensureUserId();
 
-    this.socket.send(JSON.stringify(message));
+    const broadcaster = { broadcaster_user_id: this.broadcasterId };
+    const definitions = [
+      ['channel.chat.message', { ...broadcaster, user_id: this.userId }],
+      ['channel.subscribe', broadcaster],
+      ['channel.subscription.gift', broadcaster],
+      ['channel.raid', { to_broadcaster_user_id: this.broadcasterId }],
+      ['channel.cheer', broadcaster],
+      ['channel.channel_points_custom_reward_redemption.add', broadcaster],
+    ];
+
+    await Promise.all(definitions.map(async ([type, condition]) => {
+      const payload = this._buildSubscription(type, condition);
+      try {
+        await this._createSubscription(payload);
+        this.subscriptions.set(type, payload);
+        this.logger.info(`[eventsub] subscribed to ${type}`);
+      } catch (error) {
+        this.logger.error(`[eventsub] failed to subscribe to ${type}: ${error.message}`);
+      }
+    }));
   }
 
   _handleMessage(raw) {
@@ -97,7 +121,9 @@ export class EventSubClient {
       this.sessionId = payload.session.id;
       this.isConnected = true;
       this.logger.info('[eventsub] session welcome received', { sessionId: this.sessionId });
-      this._subscribeToDefaults();
+      this._subscribeToDefaults().catch((error) => {
+        this.logger.error('[eventsub] subscription setup failed', error.message);
+      });
       return;
     }
 
@@ -119,7 +145,7 @@ export class EventSubClient {
     const event = payload.event;
     const normalized = {
       type: 'chat',
-      user: event.user_name || event.user_login || event.chatter_user_name || 'unknown',
+      user: event.user_name || event.user_login || event.chatter_user_name || event.from_broadcaster_user_name || 'unknown',
       text: event.message || event.reward || event.message?.text || '',
       emotes: event.emotes || [],
       badges: event.badges || [],
