@@ -1,21 +1,23 @@
 import WebSocket from 'ws';
 
-import { getTwitchHeaders, isUnauthorizedStatus, refreshAccessToken, validateToken } from './auth.js';
+import { TWITCH_SCOPES, getTwitchHeaders, isUnauthorizedStatus, refreshStoredToken, validateToken } from './auth.js';
 
 const DEFAULT_EVENTSUB_URL = 'wss://eventsub.wss.twitch.tv/ws';
 const SUBSCRIPTIONS_URL = 'https://api.twitch.tv/helix/eventsub/subscriptions';
 
 export class EventSubClient {
-  constructor({ accessToken, broadcasterId, onEvent, logger = console }) {
+  constructor({ accessToken, broadcasterId, onEvent, onReady, logger = console }) {
     this.accessToken = accessToken;
     this.broadcasterId = broadcasterId;
     this.onEvent = onEvent;
+    this.onReady = onReady;
     this.logger = logger;
     this.socket = null;
     this.subscriptions = new Map();
     this.reconnectTimer = null;
     this.sessionId = null;
     this.isConnected = false;
+    this.missingScopes = [];
   }
 
   async _refreshTokenIfNeeded(responseStatus) {
@@ -24,14 +26,8 @@ export class EventSubClient {
     }
 
     try {
-      const refreshed = await refreshAccessToken({
-        clientId: process.env.TWITCH_CLIENT_ID,
-        refreshToken: process.env.TWITCH_REFRESH_TOKEN,
-      });
-
-      this.accessToken = refreshed.access_token;
-      process.env.TWITCH_TOKEN = refreshed.access_token;
-      this.logger.warn('[eventsub] token refreshed after 401');
+      this.accessToken = await refreshStoredToken();
+      this.logger.warn('[eventsub] token refreshed after 401 and saved to .env');
       return true;
     } catch (error) {
       this.logger.error('[eventsub] failed to refresh token', error.message);
@@ -45,10 +41,24 @@ export class EventSubClient {
       return;
     }
 
-    const info = await validateToken(this.accessToken);
+    let info;
+    try {
+      info = await validateToken(this.accessToken);
+    } catch (error) {
+      if (!await this._refreshTokenIfNeeded(401)) {
+        throw new Error(`${error.message}. Run "npm run token" to log in again.`);
+      }
+      info = await validateToken(this.accessToken);
+    }
     this.userId = info.user_id;
     this.broadcasterId = this.broadcasterId || info.user_id;
+    process.env.BROADCASTER_ID = process.env.BROADCASTER_ID || this.broadcasterId;
+    this.login = info.login;
+    this.missingScopes = TWITCH_SCOPES.filter((scope) => !(info.scopes || []).includes(scope));
     this.logger.info('[eventsub] token valid', { login: info.login, scopes: info.scopes });
+    if (this.missingScopes.length) {
+      this.logger.error(`[eventsub] token is missing ${this.missingScopes.join(', ')}. Run "npm run token" to fix chat replies, clips, and announcements.`);
+    }
   }
 
   _buildSubscription(type, condition, version = '1') {
@@ -92,6 +102,8 @@ export class EventSubClient {
       ['channel.raid', { to_broadcaster_user_id: this.broadcasterId }],
       ['channel.cheer', broadcaster],
       ['channel.channel_points_custom_reward_redemption.add', broadcaster],
+      ['stream.online', broadcaster],
+      ['stream.offline', broadcaster],
     ];
 
     await Promise.all(definitions.map(async ([type, condition]) => {
@@ -104,6 +116,10 @@ export class EventSubClient {
         this.logger.error(`[eventsub] failed to subscribe to ${type}: ${error.message}`);
       }
     }));
+
+    if (typeof this.onReady === 'function') {
+      this.onReady({ broadcasterId: this.broadcasterId, userId: this.userId });
+    }
   }
 
   _handleMessage(raw) {
@@ -176,6 +192,16 @@ export class EventSubClient {
     if (payload.subscription && payload.subscription.type === 'channel.channel_points_custom_reward_redemption.add') {
       normalized.type = 'redemption';
       normalized.text = `${normalized.user} redeemed ${event.reward?.title || 'reward'}`;
+    }
+
+    if (payload.subscription && payload.subscription.type === 'stream.online') {
+      normalized.type = 'stream_online';
+      normalized.text = 'Stream started';
+    }
+
+    if (payload.subscription && payload.subscription.type === 'stream.offline') {
+      normalized.type = 'stream_offline';
+      normalized.text = 'Stream ended';
     }
 
     if (payload.subscription && payload.subscription.type === 'channel.chat.message') {

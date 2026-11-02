@@ -1,8 +1,11 @@
+// Rewind's own replies and viewers' commands are not things the streamer needs to catch up on.
+const isOwnReply = (item) => String(item?.user || '').toLowerCase() === 'rewind';
+
 export function createCatchupManager({ buffer, summarizeFn, logger = console, defaultWindowMs = 15 * 60 * 1000 }) {
   let lastOpenedAt = Date.now() - defaultWindowMs;
 
   const isQuestion = (item) => {
-    if (!item || item.type !== 'chat' || !item.text) {
+    if (!item || item.type !== 'chat' || !item.text || isOwnReply(item) || item.text.startsWith('!')) {
       return false;
     }
 
@@ -31,7 +34,7 @@ export function createCatchupManager({ buffer, summarizeFn, logger = console, de
       return buildUnread();
     },
     async runDigest({ source = 'dashboard', windowMs = defaultWindowMs } = {}) {
-      const recent = buffer.getAll().filter((item) => item.at >= lastOpenedAt - windowMs);
+      const recent = buffer.getAll().filter((item) => item.at >= lastOpenedAt - windowMs && !isOwnReply(item));
       const digest = await summarizeFn({ items: recent, logger, source });
       lastOpenedAt = Date.now();
       logger.info(`[catchup] digest created via ${source}`);

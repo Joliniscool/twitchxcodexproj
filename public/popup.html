@@ -129,6 +129,30 @@
         margin-top: 12px;
       }
 
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      .action-note {
+        min-height: 1.1em;
+        margin: 6px 0 0;
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+
+      .alert {
+        margin: 8px 0;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(248, 113, 113, 0.4);
+        background: rgba(248, 113, 113, 0.1);
+        color: #fecaca;
+        font-size: 0.78rem;
+      }
+
       @keyframes flash {
         from { box-shadow: inset 0 0 0 3px var(--accent); }
         to { box-shadow: inset 0 0 0 3px transparent; }
@@ -152,6 +176,7 @@
           <span id="badge" class="badge">0 Q / 0 E</span>
         </div>
         <div id="status" class="status">Connecting…</div>
+        <div id="scope-alert" class="alert" hidden></div>
 
         <p id="one-line" class="one-line">No catch-up yet.</p>
 
@@ -169,6 +194,11 @@
         </div>
 
         <button id="catchup-button">Catch me up</button>
+        <div class="actions">
+          <button id="clip-button">Clip Now</button>
+          <button id="recap-button">Post Recap</button>
+        </div>
+        <p id="action-note" class="action-note"></p>
       </div>
     </div>
 
@@ -184,6 +214,10 @@
       const eventsEl = document.getElementById('events');
       const jokesEl = document.getElementById('jokes');
       const catchupButton = document.getElementById('catchup-button');
+      const clipButton = document.getElementById('clip-button');
+      const recapButton = document.getElementById('recap-button');
+      const scopeAlert = document.getElementById('scope-alert');
+      const actionNote = document.getElementById('action-note');
       let pipWindow = null;
 
       // Chat text is untrusted, so lists are built with textContent rather than innerHTML.
@@ -214,11 +248,22 @@
         app.classList.add('flash');
       }
 
+      function renderHealth(status) {
+        if (!status) return;
+
+        const where = status.simulate ? 'simulator' : status.login || 'Twitch';
+        statusEl.textContent = status.chatConnected ? `Chat connected (${where})` : 'Chat disconnected';
+
+        const missing = status.missingScopes || [];
+        scopeAlert.hidden = !missing.length;
+        scopeAlert.textContent = `Rewind can't reply in chat. Your token is missing ${missing.join(', ')}. Stop Rewind, run "npm run token", and update .env.`;
+      }
+
       function connect() {
         const socket = new WebSocket(`ws://${location.host}`);
 
         socket.addEventListener('open', () => {
-          statusEl.textContent = 'Live';
+          statusEl.textContent = 'Connected to Rewind';
         });
 
         socket.addEventListener('message', (event) => {
@@ -228,6 +273,9 @@
           }
           if (message.type === 'digest') {
             renderDigest(message.payload);
+          }
+          if (message.type === 'health') {
+            renderHealth(message.payload);
           }
         });
 
@@ -251,13 +299,30 @@
         }
       });
 
+      async function runAction(button, url, successText) {
+        button.disabled = true;
+        actionNote.textContent = 'Working…';
+        try {
+          const response = await fetch(url, { method: 'POST' });
+          const result = await response.json();
+          actionNote.textContent = result.ok ? successText : result.error;
+        } catch (error) {
+          actionNote.textContent = 'Rewind is not responding. Is it still running?';
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      clipButton.addEventListener('click', () => runAction(clipButton, '/api/clip', 'Clip created.'));
+      recapButton.addEventListener('click', () => runAction(recapButton, '/api/recap', 'Recap saved and posted to chat.'));
+
       async function popOut() {
         if (pipWindow) {
           pipWindow.focus();
           return;
         }
 
-        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 360, height: 520 });
+        pipWindow = await window.documentPictureInPicture.requestWindow({ width: 360, height: 600 });
 
         for (const styleEl of document.querySelectorAll('style')) {
           pipWindow.document.head.appendChild(styleEl.cloneNode(true));

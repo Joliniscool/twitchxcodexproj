@@ -36,14 +36,15 @@
           linear-gradient(180deg, var(--bg), #111113 100%);
         color: var(--text);
         min-height: 100vh;
+        padding: 24px 0;
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: center;
         letter-spacing: -0.02em;
       }
 
       .panel {
-        width: min(780px, calc(100vw - 32px));
+        width: min(960px, calc(100vw - 32px));
         background: var(--panel);
         border: 1px solid var(--border);
         border-radius: 20px;
@@ -116,7 +117,7 @@
         letter-spacing: 0.02em;
       }
 
-      .digest, .moments {
+      .digest, .moments, .catalog, .onboarding, .recap {
         margin-top: 22px;
         background: linear-gradient(180deg, rgba(31, 31, 35, 0.9), rgba(18, 18, 20, 0.9));
         border-radius: 14px;
@@ -124,13 +125,153 @@
         border: 1px solid var(--border);
       }
 
-      .digest h2, .moments h2 {
+      .digest h2, .moments h2, .catalog h2, .onboarding h2, .recap h2 {
         margin: 0 0 12px;
         font-size: 1.05rem;
         letter-spacing: -0.02em;
       }
 
-      .digest h3 {
+      .lights {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+        margin-bottom: 14px;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      .light::before {
+        content: '';
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-right: 7px;
+        border-radius: 50%;
+        background: #6b6b76;
+      }
+
+      .light.on::before {
+        background: var(--success);
+        box-shadow: 0 0 8px var(--success);
+      }
+
+      .light.bad::before {
+        background: #f87171;
+      }
+
+      .alert {
+        margin-bottom: 14px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(248, 113, 113, 0.4);
+        background: rgba(248, 113, 113, 0.1);
+        color: #fecaca;
+        font-size: 0.88rem;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+
+      .actions kbd {
+        display: block;
+        margin-top: 3px;
+        font: inherit;
+        font-size: 0.72rem;
+        font-weight: 500;
+        opacity: 0.8;
+      }
+
+      .action-note {
+        min-height: 1.2em;
+        margin: 8px 0 0;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+
+      .onboarding label {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 0.9rem;
+      }
+
+      .onboarding button {
+        margin: 0;
+        padding: 5px 10px;
+        font-size: 0.78rem;
+      }
+
+      a {
+        color: #c4a6ff;
+      }
+
+      .catalog-fields {
+        display: grid;
+        gap: 6px;
+      }
+
+      .catalog-row {
+        display: grid;
+        grid-template-columns: minmax(110px, 1fr) 120px minmax(160px, 3fr) auto auto;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .catalog-row input, .catalog-row select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 7px 9px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.25);
+        color: var(--text);
+        font: inherit;
+        font-size: 0.85rem;
+      }
+
+      .catalog-row button {
+        padding: 7px 10px;
+        font-size: 0.8rem;
+      }
+
+      .catalog-name {
+        font-weight: 700;
+        overflow-wrap: anywhere;
+      }
+
+      .catalog-tag {
+        display: block;
+        font-size: 0.7rem;
+        font-weight: 400;
+        color: var(--muted);
+      }
+
+      .catalog-tag.broken {
+        color: #fca5a5;
+      }
+
+      @media (max-width: 640px) {
+        .catalog-row {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .catalog-fields {
+          grid-column: 1 / -1;
+        }
+
+        .actions {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .digest h3, .recap h3 {
         margin: 16px 0 8px;
         font-size: 0.78rem;
         text-transform: uppercase;
@@ -165,7 +306,29 @@
         <div id="unread-badge" class="badge">Unread: 0 / 0</div>
       </div>
 
-      <button id="trigger-button">Trigger catch-up</button>
+      <div class="lights">
+        <span id="light-chat" class="light">Chat: connecting…</span>
+        <span id="light-hype" class="light">Hype watch</span>
+        <span id="light-clip" class="light">No clips yet</span>
+      </div>
+      <div id="scope-alert" class="alert" hidden></div>
+
+      <div class="actions">
+        <button id="trigger-button">Show Catch-Up<kbd>press C</kbd></button>
+        <button id="clip-button">Clip Now<kbd>press M</kbd></button>
+        <button id="recap-button">Post Recap<kbd>press R</kbd></button>
+      </div>
+      <p id="action-note" class="action-note">Stream Deck or hotkey tool: open http://localhost:3000/api/catchup</p>
+
+      <div id="onboarding" class="onboarding" hidden>
+        <h2>Get set up</h2>
+        <label><input type="checkbox" id="check-twitch" disabled /> Connect Twitch</label>
+        <label><input type="checkbox" id="check-overlay" /> Add the overlay to OBS as a Browser Source
+          <button id="copy-overlay" type="button">Copy URL</button></label>
+        <label><input type="checkbox" id="check-message" /> Send a test message to chat
+          <button id="test-message" type="button">Send</button></label>
+        <button id="onboarding-done" type="button">Done</button>
+      </div>
 
       <div id="digest" class="digest">
         <h2>Current catch-up digest</h2>
@@ -176,14 +339,32 @@
         <h2>Today's moments</h2>
         <p class="muted">No hype moments yet.</p>
       </div>
+
+      <div id="recap" class="recap" hidden></div>
+
+      <div class="catalog">
+        <h2>Channel guide</h2>
+        <p class="muted">Learned from chat, channel point rewards, and extensions. Edits are kept when Rewind relearns. No chat bot? Fill in "Rewind reply" and Rewind will answer that command itself.</p>
+        <div id="catalog"></div>
+        <form id="catalog-add" class="catalog-row">
+          <input name="command" placeholder="!command" required />
+          <select name="category"></select>
+          <div class="catalog-fields">
+            <input name="description" placeholder="What it does for viewers" />
+            <input name="reply" placeholder="Rewind reply, e.g. Join us: discord.gg/yourlink" maxlength="500" />
+          </div>
+          <button type="submit">Add</button>
+          <span></span>
+        </form>
+      </div>
     </div>
 
     <script>
       const unreadBadge = document.getElementById('unread-badge');
       const digestEl = document.getElementById('digest');
       const momentsEl = document.getElementById('moments');
+      const catalogEl = document.getElementById('catalog');
       const triggerButton = document.getElementById('trigger-button');
-      const socket = new WebSocket(`ws://${location.host}`);
 
       function renderUnread(unread) {
         if (!unread) {
@@ -194,69 +375,307 @@
         unreadBadge.textContent = `Unread: ${unread.questions ?? 0} Q / ${unread.events ?? 0} E`;
       }
 
+      function listOf(texts) {
+        const shown = texts.length ? texts : ['None'];
+        return el('ul', {}, shown.map((text) => el('li', { textContent: text })));
+      }
+
       function renderDigest(digest) {
+        digestEl.replaceChildren(el('h2', { textContent: 'Current catch-up digest' }));
         if (!digest) {
-          digestEl.innerHTML = '<h2>Current catch-up digest</h2><p class="muted">No digest yet.</p>';
+          digestEl.append(el('p', { className: 'muted', textContent: 'No digest yet.' }));
           return;
         }
 
-        const questionItems = (digest.questions || []).map((q) => `<li><strong>${q.user || 'viewer'}:</strong> ${q.text || ''}</li>`).join('') || '<li>None</li>';
-        const eventItems = (digest.events || []).map((e) => `<li>${e.summary || 'Event'}</li>`).join('') || '<li>None</li>';
-        const jokeItems = (digest.jokes || []).map((j) => `<li>${j.summary || 'Joke'}</li>`).join('') || '<li>None</li>';
+        digestEl.append(
+          el('p', { textContent: digest.oneLine || 'No summary available.' }),
+          el('h3', { textContent: 'Questions' }),
+          listOf((digest.questions || []).map((q) => `${q.user || 'viewer'}: ${q.text || ''}`)),
+          el('h3', { textContent: 'Events' }),
+          listOf((digest.events || []).map((e) => e.summary || 'Event')),
+          el('h3', { textContent: 'Jokes' }),
+          listOf((digest.jokes || []).map((j) => j.summary || 'Joke')),
+        );
+      }
 
-        digestEl.innerHTML = `
-          <h2>Current catch-up digest</h2>
-          <p><strong>One line:</strong> ${digest.oneLine || 'No summary available.'}</p>
-          <h3>Questions</h3>
-          <ul>${questionItems}</ul>
-          <h3>Events</h3>
-          <ul>${eventItems}</ul>
-          <h3>Jokes</h3>
-          <ul>${jokeItems}</ul>
-        `;
+      // Only link real https URLs; everything shown here started as untrusted text.
+      function clipLink(url) {
+        return /^https:\/\//.test(url || '')
+          ? [' ', el('a', { href: url, target: '_blank', rel: 'noopener', textContent: 'clip' })]
+          : [];
       }
 
       function renderMoments(list) {
-        if (!list || !list.length) {
-          momentsEl.innerHTML = '<h2>Today\'s moments</h2><p class="muted">No hype moments yet.</p>';
+        momentsEl.replaceChildren(el('h2', { textContent: "Today's moments" }));
+        const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const today = (list || []).filter((moment) => Number(moment.at) >= dayAgo).slice(-8).reverse();
+        if (!today.length) {
+          momentsEl.append(el('p', { className: 'muted', textContent: 'No hype moments yet.' }));
           return;
         }
 
-        const items = list.slice(-5).reverse().map((moment) => {
-          const score = moment.score ? ` (${moment.score})` : '';
-          return `<li>${moment.label || 'Moment'}${score}</li>`;
-        }).join('');
-
-        momentsEl.innerHTML = `
-          <h2>Today's moments</h2>
-          <ul>${items}</ul>
-        `;
+        momentsEl.append(el('ul', {}, today.map((moment) => {
+          const time = new Date(moment.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+          return el('li', {}, [`${time}: ${moment.label || 'Moment'}`, ...clipLink(moment.clipUrl)]);
+        })));
       }
 
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'unread') {
-          renderUnread(message.payload);
-        }
-        if (message.type === 'digest') {
-          renderDigest(message.payload);
-        }
-        if (message.type === 'moments') {
-          renderMoments(message.payload);
-        }
-      });
+      function renderRecap(recap) {
+        const recapEl = document.getElementById('recap');
+        if (!recap) return;
 
-      triggerButton.addEventListener('click', async () => {
-        const response = await fetch('/api/trigger-catchup');
+        const health = recap.catalogHealth || { broken: [], unused: [] };
+        recapEl.hidden = false;
+        recapEl.replaceChildren(
+          el('h2', { textContent: `Stream recap, ${new Date(recap.endedAt).toLocaleString()}` }),
+          el('h3', { textContent: 'Moments' }),
+          el('ul', {}, (recap.moments || []).map((moment) => el('li', {}, [moment.label || 'Moment', ...clipLink(moment.clipUrl)]))),
+          el('h3', { textContent: 'Top questions' }),
+          listOf((recap.topQuestions || []).map((q) => `${q.user}: ${q.text}${q.count > 1 ? ` (×${q.count})` : ''}`)),
+          el('h3', { textContent: 'Top supporters' }),
+          listOf((recap.topSupporters || []).map((entry) => `${entry.user}: ${entry.summary}`)),
+          el('h3', { textContent: 'Channel guide health' }),
+          listOf([
+            ...health.broken.map((command) => `${command} looks broken`),
+            ...health.unused.map((command) => `${command} went unused`),
+          ]),
+        );
+      }
+
+      const lights = {
+        chat: document.getElementById('light-chat'),
+        hype: document.getElementById('light-hype'),
+        clip: document.getElementById('light-clip'),
+      };
+      const scopeAlert = document.getElementById('scope-alert');
+      const checkTwitch = document.getElementById('check-twitch');
+
+      function renderHealth(status) {
+        if (!status) return;
+
+        const where = status.simulate ? 'simulator' : status.login || 'Twitch';
+        lights.chat.className = `light ${status.chatConnected ? 'on' : 'bad'}`;
+        lights.chat.textContent = status.chatConnected ? `Chat connected (${where})` : 'Chat disconnected';
+        lights.hype.className = `light ${status.hypeWatching ? 'on' : ''}`;
+        lights.hype.textContent = status.hypeWatching ? 'Watching for hype' : 'Hype watch off';
+        lights.clip.className = `light ${status.lastClip ? 'on' : ''}`;
+        lights.clip.textContent = status.lastClip
+          ? `Last clip ${new Date(status.lastClip.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+          : 'No clips yet';
+
+        const missing = status.missingScopes || [];
+        scopeAlert.hidden = !missing.length;
+        scopeAlert.textContent = `Your Twitch token is missing ${missing.join(', ')}. Rewind can't reply in chat until you stop it, run "npm run token", and update .env.`;
+        checkTwitch.checked = status.chatConnected && !status.simulate;
+      }
+
+      const actionNote = document.getElementById('action-note');
+
+      async function runAction(url, successText) {
+        actionNote.textContent = 'Working…';
+        try {
+          const response = await fetch(url, { method: 'POST' });
+          const result = await response.json();
+          actionNote.textContent = result.ok ? successText : result.error;
+        } catch (error) {
+          actionNote.textContent = 'Rewind is not responding. Is it still running?';
+        }
+      }
+
+      async function showCatchup() {
+        const response = await fetch('/api/catchup');
         const result = await response.json();
         if (result && result.digest) {
           renderDigest(result.digest);
         }
+      }
+
+      const clipNow = () => runAction('/api/clip', 'Clip created.');
+      const postRecap = () => runAction('/api/recap', 'Recap saved and posted to chat.');
+
+      document.addEventListener('keydown', (event) => {
+        if (event.target.matches('input, select, textarea') || event.metaKey || event.ctrlKey || event.altKey) return;
+        const hotkey = { c: showCatchup, m: clipNow, r: postRecap }[event.key.toLowerCase()];
+        hotkey?.();
       });
+
+      // Browser storage is only a convenience here, and can be unavailable.
+      function readFlag(key) {
+        try {
+          return localStorage.getItem(key) === 'true';
+        } catch {
+          return false;
+        }
+      }
+
+      function writeFlag(key, value) {
+        try {
+          localStorage.setItem(key, String(value));
+        } catch {
+          // The checklist just reappears next time.
+        }
+      }
+
+      const onboardingEl = document.getElementById('onboarding');
+      const copyOverlayButton = document.getElementById('copy-overlay');
+      onboardingEl.hidden = readFlag('rewind.onboarded');
+      for (const id of ['check-overlay', 'check-message']) {
+        const box = document.getElementById(id);
+        box.checked = readFlag(`rewind.${id}`);
+        box.addEventListener('change', () => writeFlag(`rewind.${id}`, box.checked));
+      }
+
+      copyOverlayButton.addEventListener('click', async () => {
+        const url = `${location.origin}/overlay.html`;
+        try {
+          await navigator.clipboard.writeText(url);
+          copyOverlayButton.textContent = 'Copied';
+        } catch {
+          copyOverlayButton.textContent = url;
+        }
+      });
+
+      document.getElementById('test-message').addEventListener('click', async () => {
+        await runAction('/api/test-message', 'Test message sent. Check your chat.');
+        const box = document.getElementById('check-message');
+        box.checked = true;
+        writeFlag('rewind.check-message', true);
+      });
+
+      document.getElementById('onboarding-done').addEventListener('click', () => {
+        onboardingEl.hidden = true;
+        writeFlag('rewind.onboarded', true);
+      });
+
+      const CATEGORIES = ['community', 'social', 'stream', 'support', 'media', 'utility', 'rewards', 'extensions', 'general'];
+      const SOURCE_LABELS = { auto: 'auto', ai: 'AI', manual: 'edited', twitch: 'from Twitch' };
+      const catalogAddForm = document.getElementById('catalog-add');
+
+      function el(tag, props = {}, children = []) {
+        const node = Object.assign(document.createElement(tag), props);
+        node.append(...children);
+        return node;
+      }
+
+      function categorySelect(selected) {
+        const select = el('select');
+        for (const category of CATEGORIES) {
+          select.append(el('option', { value: category, textContent: category, selected: category === selected }));
+        }
+        return select;
+      }
+
+      async function saveCatalogEntry(entry) {
+        await fetch('/api/catalog', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry),
+        });
+        loadCatalog();
+      }
+
+      async function removeCatalogEntry(entry) {
+        await fetch('/api/catalog', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: entry.command, kind: entry.kind }),
+        });
+        loadCatalog();
+      }
+
+      function renderCatalog(commands) {
+        catalogEl.replaceChildren();
+        if (!commands || !commands.length) {
+          catalogEl.append(el('p', { className: 'muted', textContent: 'No commands learned yet. They appear as viewers use them in chat.' }));
+          return;
+        }
+
+        for (const entry of commands) {
+          const kind = entry.kind || 'command';
+          const tagText = entry.possiblyBroken
+            ? `possibly broken · used ${entry.uses}×, no bot reply`
+            : `${kind} · ${SOURCE_LABELS[entry.descriptionSource] || 'auto'}${entry.cost ? ` · ${entry.cost} pts` : ''}`;
+          const category = categorySelect(entry.category);
+          const description = el('input', { value: entry.description || '', placeholder: 'What it does for viewers' });
+          const reply = el('input', { value: entry.reply || '', placeholder: 'Rewind reply (optional)', maxLength: 500, hidden: kind !== 'command' });
+          const examples = (entry.examples || []).slice(-3).join('\n');
+
+          catalogEl.append(el('div', { className: 'catalog-row' }, [
+            el('div', { className: 'catalog-name', textContent: entry.command, title: examples }, [
+              el('span', { className: `catalog-tag${entry.possiblyBroken ? ' broken' : ''}`, textContent: tagText }),
+            ]),
+            category,
+            el('div', { className: 'catalog-fields' }, [description, reply]),
+            el('button', {
+              textContent: 'Save',
+              onclick: () => saveCatalogEntry({ command: entry.command, kind, category: category.value, description: description.value, reply: reply.value }),
+            }),
+            el('button', { textContent: 'Remove', onclick: () => removeCatalogEntry(entry) }),
+          ]));
+        }
+      }
+
+      function loadCatalog() {
+        fetch('/api/catalog')
+          .then((response) => response.json())
+          .then((result) => renderCatalog(result.commands || []));
+      }
+
+      catalogAddForm.querySelector('select').replaceWith(Object.assign(categorySelect('general'), { name: 'category' }));
+      catalogAddForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const data = Object.fromEntries(new FormData(catalogAddForm));
+        saveCatalogEntry({ ...data, kind: 'command' });
+        catalogAddForm.reset();
+      });
+
+      function connect() {
+        const socket = new WebSocket(`ws://${location.host}`);
+
+        socket.addEventListener('message', (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === 'unread') {
+            renderUnread(message.payload);
+          }
+          if (message.type === 'digest') {
+            renderDigest(message.payload);
+          }
+          if (message.type === 'moments') {
+            renderMoments(message.payload);
+          }
+          if (message.type === 'health') {
+            renderHealth(message.payload);
+          }
+          if (message.type === 'recap') {
+            renderRecap(message.payload);
+          }
+        });
+
+        socket.addEventListener('close', () => {
+          lights.chat.className = 'light bad';
+          lights.chat.textContent = 'Rewind is not running';
+          setTimeout(connect, 2000);
+        });
+      }
+
+      triggerButton.addEventListener('click', showCatchup);
+      document.getElementById('clip-button').addEventListener('click', clipNow);
+      document.getElementById('recap-button').addEventListener('click', postRecap);
 
       fetch('/api/moments')
         .then((response) => response.json())
         .then((result) => renderMoments(result.moments || []));
+
+      fetch('/api/status')
+        .then((response) => response.json())
+        .then((result) => renderHealth(result.result));
+
+      fetch('/api/recap')
+        .then((response) => response.json())
+        .then((result) => renderRecap(result.result));
+
+      connect();
+      loadCatalog();
     </script>
   </body>
 </html>

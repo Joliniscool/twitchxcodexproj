@@ -1,8 +1,10 @@
 import 'dotenv/config';
 
+import { TWITCH_SCOPES } from '../src/twitch/auth.js';
+
 // Device code flow: works for public Twitch apps, which have no client secret.
 const TWITCH_BASE = 'https://id.twitch.tv/oauth2';
-const SCOPES = 'user:read:chat channel:read:subscriptions bits:read channel:read:redemptions';
+const SCOPES = TWITCH_SCOPES.join(' ');
 
 const clientId = process.env.TWITCH_CLIENT_ID;
 if (!clientId) {

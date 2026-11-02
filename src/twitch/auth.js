@@ -1,4 +1,31 @@
+import fs from 'fs/promises';
+import path from 'path';
+
 const DEFAULT_TWITCH_BASE = 'https://id.twitch.tv/oauth2';
+const ENV_PATH = path.resolve(process.cwd(), '.env');
+
+export const TWITCH_SCOPES = [
+  'user:read:chat',
+  'user:write:chat',
+  'channel:read:subscriptions',
+  'bits:read',
+  'channel:read:redemptions',
+  'clips:edit',
+  'channel:manage:broadcast',
+  'moderator:manage:announcements',
+];
+
+// Public-app refresh tokens are single use, so each new pair must be written back to .env.
+export async function saveTokensToEnv({ accessToken, refreshToken }) {
+  let contents = await fs.readFile(ENV_PATH, 'utf8').catch(() => '');
+  for (const [key, value] of [['TWITCH_TOKEN', accessToken], ['TWITCH_REFRESH_TOKEN', refreshToken]]) {
+    if (!value) continue;
+    const line = `${key}=${value}`;
+    const pattern = new RegExp(`^${key}=.*$`, 'm');
+    contents = pattern.test(contents) ? contents.replace(pattern, line) : `${contents.replace(/\n?$/, '\n')}${line}\n`;
+  }
+  await fs.writeFile(ENV_PATH, contents);
+}
 
 export function getTwitchHeaders(accessToken) {
   return {
@@ -41,6 +68,23 @@ export async function refreshAccessToken({ clientId, refreshToken, clientSecret 
   }
 
   return data;
+}
+
+let refreshInFlight = null;
+
+// EventSub and Helix can both hit an expired token at once, and refresh tokens are single use, so share one refresh.
+export function refreshStoredToken() {
+  refreshInFlight = refreshInFlight || refreshAccessToken({})
+    .then(async (refreshed) => {
+      process.env.TWITCH_TOKEN = refreshed.access_token;
+      process.env.TWITCH_REFRESH_TOKEN = refreshed.refresh_token || process.env.TWITCH_REFRESH_TOKEN;
+      await saveTokensToEnv({ accessToken: refreshed.access_token, refreshToken: refreshed.refresh_token });
+      return refreshed.access_token;
+    })
+    .finally(() => {
+      refreshInFlight = null;
+    });
+  return refreshInFlight;
 }
 
 export async function validateToken(accessToken) {

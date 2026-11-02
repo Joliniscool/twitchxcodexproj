@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 
 function buildFallbackDigest(items) {
   const questions = items
-    .filter((item) => item.type === 'chat' && /\?|who|what|when|where|why|how|can|could|did|anyone|someone/i.test(item.text || ''))
+    .filter((item) => item.type === 'chat' && !/^!/.test(item.text || '') && /\?|who|what|when|where|why|how|can|could|did|anyone|someone/i.test(item.text || ''))
     .slice(0, 3)
     .map((item) => ({ user: item.user || 'viewer', text: item.text || '' }));
 
@@ -108,4 +108,34 @@ Rules:
   }
 
   return buildFallbackDigest(recentItems);
+}
+
+const CATALOG_CATEGORIES = ['community', 'social', 'stream', 'support', 'media', 'utility', 'general'];
+
+export async function describeCatalogEntries({ entries, logger = console }) {
+  const apiKey = process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || '';
+  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  if (!apiKey || !entries?.length) {
+    return null;
+  }
+
+  const prompt = `You maintain a Twitch channel's guide of chat commands. For each command below, write a plain-English description of what it does for viewers (at most 15 words), based only on its examples, and pick one category from: ${CATALOG_CATEGORIES.join(', ')}.
+Examples look like "!command → bot reply". If there are no replies, describe what the name suggests and say it may not be set up.
+Return strict JSON only: {"entries":[{"command":"!name","description":"string","category":"string"}]}
+
+${JSON.stringify(entries, null, 2)}`;
+
+  const client = new OpenAI({ apiKey });
+  const response = await client.responses.create({
+    model,
+    input: [{ role: 'user', content: prompt }],
+  });
+
+  const text = response.output_text || response.output?.[0]?.content?.[0]?.text || '';
+  const parsed = parseJsonFromText(text);
+  if (!parsed || !Array.isArray(parsed.entries)) {
+    throw new Error('AI returned no catalog entries');
+  }
+
+  return parsed.entries.filter((entry) => entry && entry.command && entry.description);
 }

@@ -18,13 +18,13 @@ test('detects a hype burst from emote-heavy chat', async () => {
     logger: { info() {}, warn() {}, error() {} },
   });
 
-  const base = Date.now();
+  const base = Math.floor(Date.now() / 5000) * 5000;
   for (let i = 0; i < 12; i += 1) {
     detector.recordEvent({
       type: 'chat',
       user: `viewer${i}`,
       text: 'LUL LUL LUL pogchamp',
-      at: base + i * 1000,
+      at: base + i * 100,
       emotes: ['LUL', 'pogchamp'],
     });
   }
@@ -33,4 +33,24 @@ test('detects a hype burst from emote-heavy chat', async () => {
   assert.ok(moment, 'expected a hype moment to be detected');
   assert.ok(moment.label, 'expected a generated label');
   assert.ok(moment.score > 0, 'expected a positive hype score');
+});
+
+test('steady chat does not count as a hype moment', async () => {
+  await fs.rm(tempMomentsPath, { force: true });
+
+  const detector = createHypeDetector({
+    storagePath: tempMomentsPath,
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const base = Math.floor(Date.now() / 5000) * 5000 - 60 * 5000;
+  let moment = null;
+  for (let bucket = 0; bucket <= 60; bucket += 1) {
+    for (let i = 0; i < 3; i += 1) {
+      detector.recordEvent({ type: 'chat', user: `viewer${i}`, text: 'hello', at: base + bucket * 5000 + i, emotes: [] });
+    }
+    moment = detector.detectCurrentMoment() || moment;
+  }
+
+  assert.equal(moment, null, 'an even 3 messages per bucket is not a burst');
 });

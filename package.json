@@ -7,6 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "test": "node --test",
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "token": "node scripts/get-token.js"

@@ -2,11 +2,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const DEFAULT_STORAGE_PATH = path.resolve(process.cwd(), 'data/moments.json');
+const BUCKET_MS = 5000;
+const MIN_BURST_MESSAGES = 8;
 
 export function createHypeDetector({ storagePath = DEFAULT_STORAGE_PATH, logger = console } = {}) {
   const buckets = [];
   const recentMoments = [];
   let lastMomentAt = 0;
+  let persistQueue = Promise.resolve();
 
   const ensureStorage = async () => {
     await fs.mkdir(path.dirname(storagePath), { recursive: true });
@@ -15,6 +18,12 @@ export function createHypeDetector({ storagePath = DEFAULT_STORAGE_PATH, logger 
     } catch {
       await fs.writeFile(storagePath, JSON.stringify([], null, 2));
     }
+  };
+
+  const writeJsonAtomically = async (targetPath, value) => {
+    const tempPath = `${targetPath}.${process.pid}.tmp`;
+    await fs.writeFile(tempPath, JSON.stringify(value, null, 2));
+    await fs.rename(tempPath, targetPath);
   };
 
   const loadMoments = async () => {
@@ -30,11 +39,34 @@ export function createHypeDetector({ storagePath = DEFAULT_STORAGE_PATH, logger 
   };
 
   const persistMoment = async (moment) => {
-    await ensureStorage();
-    const current = await loadMoments();
-    current.push(moment);
-    await fs.writeFile(storagePath, JSON.stringify(current, null, 2));
-    logger.info('[hype] saved moment', moment.label);
+    persistQueue = persistQueue
+      .then(async () => {
+        await ensureStorage();
+        const current = await loadMoments();
+        const next = [...current, moment];
+        await writeJsonAtomically(storagePath, next);
+        logger.info('[hype] saved moment', moment.label);
+      })
+      .catch((error) => {
+        logger.error('[hype] failed to save moment', error.message || error);
+      });
+
+    await persistQueue;
+  };
+
+  // Replace by id so a moment can gain its clip link after it was first saved.
+  const saveMoment = async (moment) => {
+    persistQueue = persistQueue
+      .then(async () => {
+        await ensureStorage();
+        const current = await loadMoments();
+        await writeJsonAtomically(storagePath, [...current.filter((entry) => entry.id !== moment.id), moment]);
+      })
+      .catch((error) => {
+        logger.error('[hype] failed to save moment', error.message || error);
+      });
+
+    await persistQueue;
   };
 
   const scoreBucket = (events) => {
@@ -77,21 +109,21 @@ export function createHypeDetector({ storagePath = DEFAULT_STORAGE_PATH, logger 
     }
 
     const baselineWindow = 5 * 60 * 1000;
-    const latestAt = buckets.reduce((latest, entry) => Math.max(latest, entry.at), 0);
-    const recentBuckets = buckets.filter((entry) => latestAt - entry.at <= baselineWindow);
-    const recentEvents = recentBuckets.flatMap((entry) => entry.events || []);
+    const priorBuckets = buckets.filter((entry) => entry.at < bucket.at && bucket.at - entry.at <= baselineWindow);
+    const oldestAt = priorBuckets.reduce((oldest, entry) => Math.min(oldest, entry.at), bucket.at);
+    const slots = Math.max(1, (bucket.at - oldestAt) / BUCKET_MS);
 
-    if (!recentEvents.length) {
-      return null;
-    }
+    // Quiet 5-second windows have no bucket, but they still count toward the baseline as zero.
+    const counts = priorBuckets.map((entry) => entry.events.length);
+    while (counts.length < slots) counts.push(0);
 
-    const counts = recentBuckets.map((entry) => entry.events.length);
     const mean = counts.reduce((sum, count) => sum + count, 0) / counts.length;
     const std = Math.sqrt(counts.reduce((sum, count) => sum + (count - mean) ** 2, 0) / counts.length);
-    const currentScore = scoreBucket(recentEvents);
-    const threshold = mean + 3 * std;
+    const currentCount = bucket.events.length;
+    const recentEvents = bucket.events;
 
-    if (currentScore >= threshold && currentScore >= Math.max(8, mean * 3) && recentEvents.length >= 8) {
+    if (currentCount > mean + 3 * std && currentCount >= mean * 3 && currentCount >= MIN_BURST_MESSAGES) {
+      const currentScore = scoreBucket(recentEvents);
       const now = Date.now();
       if (now - lastMomentAt < 60_000) {
         return null;
@@ -117,7 +149,7 @@ export function createHypeDetector({ storagePath = DEFAULT_STORAGE_PATH, logger 
 
   return {
     recordEvent(event) {
-      const bucketAt = Math.floor((event.at || Date.now()) / 5000) * 5000;
+      const bucketAt = Math.floor((event.at || Date.now()) / BUCKET_MS) * BUCKET_MS;
       let bucket = buckets.find((entry) => entry.at === bucketAt);
 
       if (!bucket) {
@@ -156,5 +188,6 @@ export function createHypeDetector({ storagePath = DEFAULT_STORAGE_PATH, logger 
     async listMoments() {
       return await loadMoments();
     },
+    saveMoment,
   };
 }

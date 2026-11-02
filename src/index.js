@@ -5,17 +5,35 @@ import { createRollingBuffer } from './core/buffer.js';
 import { createCatchupManager } from './core/catchup.js';
 import { parseCommandText, isAllowedTrigger } from './core/commands.js';
 import { createHypeDetector } from './core/hype.js';
-import { summarizeCatchup } from './ai/openai.js';
+import { createCatalogManager } from './core/catalog.js';
+import { createStreamRecap, createViewerAssistant } from './core/recap.js';
+import { summarizeCatchup, describeCatalogEntries } from './ai/openai.js';
 import { createLocalServer } from './server/server.js';
-import { createMomentAssets } from './twitch/helix.js';
+import { createMomentAssets, sendAnnouncement, sendChatMessage, fetchChannelRewards, fetchActiveExtensions } from './twitch/helix.js';
 import { EventSubClient } from './twitch/eventsub.js';
-import { startSimulator } from './sim/simulator.js';
+import { startSimulator, SIM_CHANNEL_TOOLS } from './sim/simulator.js';
+
+const CHANNEL_TOOLS_SYNC_MS = 10 * 60 * 1000;
+const STATUS_PUSH_MS = 3000;
+const SPOTLIGHT_MS = 45 * 1000;
+const CUSTOM_REPLY_COOLDOWN_MS = 15 * 1000;
+const ANNOUNCEMENT_TEXT = 'Rewind is here: !recap for what you missed, !moments for highlights, !tools for the channel guide, !ask <question>.';
+
+const shouldSimulate = process.env.SIMULATE === 'true' || !process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_TOKEN;
+
+// Simulator data stays in its own files so fake commands never reach real viewers.
+const dataPath = (name) => path.resolve(process.cwd(), 'data', shouldSimulate ? `sim-${name}` : name);
 
 const logger = console;
 const buffer = createRollingBuffer(30 * 60 * 1000);
-const server = createLocalServer({ port: Number(process.env.PORT) || 3000, logger });
+const catalogManager = createCatalogManager({
+  storagePath: dataPath('catalog.json'),
+  logger,
+  describeFn: describeCatalogEntries,
+});
+const server = createLocalServer({ port: Number(process.env.PORT) || 3000, logger, catalogManager, momentsPath: dataPath('moments.json') });
 const hypeDetector = createHypeDetector({
-  storagePath: path.resolve(process.cwd(), 'data/moments.json'),
+  storagePath: dataPath('moments.json'),
   logger,
 });
 const catchupManager = createCatchupManager({
@@ -23,6 +41,16 @@ const catchupManager = createCatchupManager({
   summarizeFn: summarizeCatchup,
   logger,
 });
+const viewerAssistant = createViewerAssistant({ buffer, logger });
+const streamRecap = createStreamRecap({
+  catalogManager,
+  hypeDetector,
+  storageDir: dataPath('recaps'),
+  logger,
+});
+const customReplyAt = new Map();
+let lastClip = null;
+let lastChatAt = null;
 
 const updateUnread = () => {
   const unread = catchupManager.getUnread();
@@ -38,6 +66,57 @@ async function triggerCatchup({ source = 'dashboard' } = {}) {
   return digest;
 }
 
+async function attachClip(moment) {
+  const media = await createMomentAssets({
+    simulate: shouldSimulate,
+    broadcasterId: twitchClient.broadcasterId,
+    logger,
+    triggerText: moment.label,
+  });
+
+  await hypeDetector.saveMoment({ ...moment, clipUrl: media.clipUrl, markerId: media.markerId, createdAt: Date.now() });
+  if (media.clipUrl) {
+    lastClip = { at: Date.now(), url: media.clipUrl };
+  }
+  server.emitMoments(await hypeDetector.listMoments());
+  return media;
+}
+
+async function clipNow() {
+  const at = Date.now();
+  const moment = { id: `moment-${at}-manual`, at, score: 0, reason: 'manual clip', label: 'Clipped by the streamer', chatSample: [] };
+  const media = await attachClip(moment);
+  if (!media.clipUrl) {
+    throw new Error('Twitch could not create a clip. The channel must be live.');
+  }
+  return media;
+}
+
+async function postRecap() {
+  const recap = await streamRecap.build();
+  server.publish('recap', recap);
+  modelReply(streamRecap.summarize(recap));
+  return recap;
+}
+
+function getStatus() {
+  return {
+    simulate: shouldSimulate,
+    login: twitchClient.login || null,
+    chatConnected: shouldSimulate || twitchClient.isConnected,
+    lastChatAt,
+    hypeWatching: true,
+    lastClip,
+    missingScopes: twitchClient.missingScopes,
+    announcementsEvery: announcementMinutes,
+  };
+}
+
+function sendTestMessage() {
+  modelReply('Rewind is connected to this chat. Try !tools or !help.');
+  return { sent: true };
+}
+
 async function handleMomentCommand() {
   const moments = await hypeDetector.listMoments();
   const today = moments.filter((moment) => {
@@ -49,18 +128,74 @@ async function handleMomentCommand() {
     ? `Today's moments: ${today.map((moment) => moment.label).slice(-5).join(' • ')}`
     : 'No moments yet today.';
 
-  handleIncomingEvent({
+  modelReply(message);
+}
+
+function modelReply(text, user = 'Rewind') {
+  const event = {
     type: 'chat',
-    user: 'Rewind',
-    text: message,
+    user,
+    text,
     emotes: [],
     badges: ['bot'],
     at: Date.now(),
-    raw: { text: message },
+    raw: { text },
+  };
+
+  buffer.add(event);
+  logger.info(`[chatbot] ${text}`);
+  postToTwitchChat(text);
+  return event;
+}
+
+// Replies are sent as the streamer's account, so EventSub echoes them back; remember them to skip the echo.
+const pendingEchoes = new Set();
+
+function postToTwitchChat(text) {
+  if (shouldSimulate || !twitchClient.userId) return;
+
+  const message = text.slice(0, 500);
+  pendingEchoes.add(message);
+  sendChatMessage({
+    broadcasterId: twitchClient.broadcasterId,
+    senderId: twitchClient.userId,
+    message,
+    logger,
+  }).then((sent) => {
+    if (!sent) pendingEchoes.delete(message);
   });
 }
 
 async function handleIncomingEvent(event) {
+  if (event.type === 'chat' && pendingEchoes.delete(event.text)) {
+    return;
+  }
+
+  if (event.type === 'stream_online') {
+    logger.info('[rewind] stream started, resetting per-stream state');
+    viewerAssistant.reset();
+    streamRecap.reset();
+    return;
+  }
+
+  if (event.type === 'stream_offline') {
+    logger.info('[rewind] stream ended, building recap');
+    await postRecap();
+    return;
+  }
+
+  streamRecap.recordEvent(event);
+
+  if (event.type === 'chat') {
+    lastChatAt = event.at;
+    catalogManager.observeEvent(event);
+
+    const viewerReply = viewerAssistant.handleEvent(event);
+    if (viewerReply) {
+      modelReply(viewerReply.text, viewerReply.user || 'Rewind');
+    }
+  }
+
   buffer.add(event);
   hypeDetector.recordEvent(event);
 
@@ -68,35 +203,38 @@ async function handleIncomingEvent(event) {
   logger.info(`[pipeline] ${summary}`);
 
   const command = parseCommandText(event.text || '');
-  if (command && command.command === '!rewind' && isAllowedTrigger(event)) {
-    triggerCatchup({ source: 'chat' });
-  }
+  const isBotGenerated = String(event.user || '').toLowerCase() === 'rewind' || (event.badges || []).some((badge) => String(badge || '').toLowerCase() === 'bot');
 
-  if (command && command.command === '!moments') {
-    await handleMomentCommand();
+  if (!isBotGenerated) {
+    if (command && command.command === '!rewind' && isAllowedTrigger(event)) {
+      triggerCatchup({ source: 'chat' });
+    }
+
+    if (command && command.command === '!moments') {
+      await handleMomentCommand();
+    }
+
+    if (command && command.command === '!tools') {
+      modelReply(catalogManager.buildToolsMenu());
+    }
+
+    if (command && command.command === '!ask') {
+      const answer = catalogManager.answerQuestion(command.args || '');
+      modelReply(answer);
+    }
+
+    if (command && catalogManager.getReply(command.command)) {
+      const lastAt = customReplyAt.get(command.command) ?? -Infinity;
+      if (Date.now() - lastAt >= CUSTOM_REPLY_COOLDOWN_MS) {
+        customReplyAt.set(command.command, Date.now());
+        modelReply(catalogManager.getReply(command.command));
+      }
+    }
   }
 
   const moment = hypeDetector.detectCurrentMoment();
   if (moment) {
-    const media = await createMomentAssets({
-      simulate: process.env.SIMULATE === 'true' || !process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_TOKEN,
-      logger,
-      triggerText: moment.label,
-    });
-
-    const enrichedMoment = {
-      ...moment,
-      clipUrl: media.clipUrl,
-      markerId: media.markerId,
-      createdAt: Date.now(),
-    };
-
-    await hypeDetector.listMoments().then(async (moments) => {
-      const next = moments.filter((entry) => entry.id !== moment.id);
-      next.push(enrichedMoment);
-      await require('node:fs/promises').writeFile(path.resolve(process.cwd(), 'data/moments.json'), JSON.stringify(next, null, 2));
-    });
-
+    await attachClip(moment);
     const message = `Moment detected: ${moment.label} | score ${moment.score}`;
     server.emitStatus(message);
     logger.info('[hype] moment detected', moment);
@@ -105,16 +243,37 @@ async function handleIncomingEvent(event) {
   updateUnread();
 }
 
-const shouldSimulate = process.env.SIMULATE === 'true' || !process.env.TWITCH_CLIENT_ID || !process.env.TWITCH_TOKEN;
+async function syncChannelTools() {
+  const broadcasterId = twitchClient.broadcasterId;
+  if (!broadcasterId) return;
+
+  const [rewards, extensions] = await Promise.all([
+    fetchChannelRewards({ broadcasterId, logger }),
+    fetchActiveExtensions({ broadcasterId, logger }),
+  ]);
+  catalogManager.syncChannelTools({ rewards, extensions });
+}
+
+const announcementMinutes = Number(process.env.ANNOUNCE_INTERVAL_MINUTES) || 0;
 
 logger.info('[rewind] booting Rewind');
 logger.info(`[rewind] simulation mode: ${shouldSimulate ? 'enabled' : 'disabled'}`);
 
 server.setTriggerHandler(triggerCatchup);
+server.setActions({
+  getStatus,
+  clipNow,
+  postRecap,
+  sendTestMessage,
+  getLatestRecap: () => streamRecap.latest(),
+});
 server.emitStatus('Rewind ready');
+
+await catalogManager.load();
 
 if (shouldSimulate) {
   logger.info('[rewind] starting simulator for local development');
+  catalogManager.syncChannelTools(SIM_CHANNEL_TOOLS);
   startSimulator({
     onEvent: handleIncomingEvent,
     logger,
@@ -126,14 +285,36 @@ const twitchClient = new EventSubClient({
   accessToken: process.env.TWITCH_TOKEN,
   broadcasterId: process.env.BROADCASTER_ID,
   onEvent: handleIncomingEvent,
+  onReady: () => syncChannelTools().catch((error) => logger.error('[catalog] channel tools sync failed', error.message || error)),
   logger,
 });
 
 if (!shouldSimulate) {
   twitchClient.connect();
+  setInterval(() => syncChannelTools().catch((error) => logger.error('[catalog] channel tools sync failed', error.message || error)), CHANNEL_TOOLS_SYNC_MS);
 }
 
-server.start().then(() => {
+setInterval(() => server.publish('health', getStatus()), STATUS_PUSH_MS);
+setInterval(() => server.publish('spotlight', catalogManager.spotlight()), SPOTLIGHT_MS);
+
+if (announcementMinutes > 0) {
+  setInterval(() => {
+    if (shouldSimulate) {
+      logger.info(`[chatbot] (announcement) ${ANNOUNCEMENT_TEXT}`);
+      return;
+    }
+    sendAnnouncement({
+      broadcasterId: twitchClient.broadcasterId,
+      moderatorId: twitchClient.userId,
+      message: ANNOUNCEMENT_TEXT,
+      logger,
+    });
+  }, announcementMinutes * 60 * 1000);
+}
+
+server.start().then(async () => {
+  server.emitMoments(await hypeDetector.listMoments());
+  server.publish('spotlight', catalogManager.spotlight());
   logger.info('[rewind] buffer ready', {
     size: buffer.size(),
     windowMinutes: 30,

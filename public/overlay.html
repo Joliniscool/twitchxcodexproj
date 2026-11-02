@@ -25,6 +25,7 @@
       }
 
       body {
+        box-sizing: border-box;
         position: relative;
         display: flex;
         align-items: flex-start;
@@ -51,7 +52,8 @@
       .corner-badge {
         position: absolute;
         top: 12px;
-        right: 12px;
+        left: 12px;
+        z-index: 1;
         background: var(--badge-bg);
         color: white;
         border-radius: 999px;
@@ -60,6 +62,27 @@
         font-weight: 700;
         letter-spacing: 0.04em;
         box-shadow: 0 6px 18px rgba(34, 197, 94, 0.35);
+      }
+
+      .tool-bar {
+        position: absolute;
+        left: 24px;
+        right: 24px;
+        bottom: 16px;
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 8px 14px;
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 10px;
+        color: var(--muted);
+        font-size: 0.85rem;
+        backdrop-filter: blur(6px);
+      }
+
+      .tool-bar strong {
+        color: var(--text);
       }
 
       h2 {
@@ -120,6 +143,11 @@
       </div>
     </div>
 
+    <div class="tool-bar">
+      <span><strong>Rewind</strong> · !recap · !moments · !tools · !ask</span>
+      <span id="spotlight"></span>
+    </div>
+
     <script>
       const card = document.getElementById('card');
       const badge = document.getElementById('badge');
@@ -127,6 +155,7 @@
       const questionsEl = document.getElementById('questions');
       const eventsEl = document.getElementById('events');
       const jokesEl = document.getElementById('jokes');
+      const spotlightEl = document.getElementById('spotlight');
       let hideTimer = null;
 
       function updateBadge(unread) {
@@ -135,22 +164,23 @@
         badge.textContent = `Unread: ${q} / ${e}`;
       }
 
+      // Chat text is untrusted, so lists are built with textContent rather than innerHTML.
       function renderList(el, items, fallbackText = 'None') {
-        if (!items || items.length === 0) {
-          el.innerHTML = `<li>${fallbackText}</li>`;
-          return;
+        el.replaceChildren();
+        for (const text of items.length ? items : [fallbackText]) {
+          const li = document.createElement('li');
+          li.textContent = text;
+          el.appendChild(li);
         }
-
-        el.innerHTML = items.map((entry) => `<li>${entry.summary || entry.text || entry.label || 'Entry'}</li>`).join('');
       }
 
       function showDigest(digest) {
         if (!digest) return;
 
         oneLineEl.textContent = digest.oneLine || 'Recent stream activity summarized.';
-        renderList(questionsEl, (digest.questions || []).map((q) => ({ text: `${q.user || 'viewer'}: ${q.text || ''}` })), 'No questions');
-        renderList(eventsEl, (digest.events || []).map((e) => ({ summary: e.summary || 'Stream event' })), 'No events');
-        renderList(jokesEl, (digest.jokes || []).map((j) => ({ summary: j.summary || 'Meme moment' })), 'No jokes');
+        renderList(questionsEl, (digest.questions || []).map((q) => `${q.user || 'viewer'}: ${q.text || ''}`), 'No questions');
+        renderList(eventsEl, (digest.events || []).map((e) => e.summary || 'Stream event'), 'No events');
+        renderList(jokesEl, (digest.jokes || []).map((j) => j.summary || 'Meme moment'), 'No jokes');
 
         card.classList.add('visible');
         if (hideTimer) {
@@ -161,16 +191,30 @@
         }, 15000);
       }
 
-      const socket = new WebSocket(`ws://${location.host}`);
-      socket.addEventListener('message', (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'unread') {
-          updateBadge(message.payload);
-        }
-        if (message.type === 'digest') {
-          showDigest(message.payload);
-        }
-      });
+      function renderSpotlight(tool) {
+        const name = tool?.kind === 'reward' ? `"${tool.command}" reward` : tool?.command;
+        spotlightEl.textContent = tool ? `Try ${name}: ${tool.description || ''}` : '';
+      }
+
+      // OBS keeps this page open for the whole stream, so survive Rewind restarts.
+      function connect() {
+        const socket = new WebSocket(`ws://${location.host}`);
+        socket.addEventListener('message', (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === 'unread') {
+            updateBadge(message.payload);
+          }
+          if (message.type === 'digest') {
+            showDigest(message.payload);
+          }
+          if (message.type === 'spotlight') {
+            renderSpotlight(message.payload);
+          }
+        });
+        socket.addEventListener('close', () => setTimeout(connect, 2000));
+      }
+
+      connect();
     </script>
   </body>
 </html>
