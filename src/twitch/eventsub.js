@@ -51,6 +51,12 @@ export class EventSubClient {
       info = await validateToken(this.accessToken);
     }
     this.userId = info.user_id;
+    // Never log the value: a misplaced secret in this setting has happened before.
+    if (this.broadcasterId && !/^\d+$/.test(this.broadcasterId)) {
+      this.logger.error('[eventsub] BROADCASTER_ID in .env is not a numeric Twitch ID, so it was ignored. Using the logged-in account.');
+      this.broadcasterId = null;
+      process.env.BROADCASTER_ID = '';
+    }
     this.broadcasterId = this.broadcasterId || info.user_id;
     process.env.BROADCASTER_ID = process.env.BROADCASTER_ID || this.broadcasterId;
     this.login = info.login;
